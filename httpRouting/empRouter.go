@@ -3,10 +3,13 @@ package httpRouting
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"stuffRegistry/dto"
 	"stuffRegistry/postgres"
+	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
@@ -24,12 +27,12 @@ func GetRouter() *mux.Router {
 }
 
 func (empHandler *EmployeeHandler) deleteEmp(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 32)
 	if err != nil || id < 1 {
 		http.Error(w, "invalid employee id", http.StatusBadRequest)
 		return
 	}
-	emp, err := empHandler.empService.DeleteEmployee(id)
+	emp, err := empHandler.empService.DeleteEmployee(int(id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.Error(w, "employee not found", http.StatusNotFound)
 		return
@@ -56,9 +59,15 @@ func (empHandler *EmployeeHandler) getEmps(w http.ResponseWriter, r *http.Reques
 
 func (empHandler EmployeeHandler) newEmp(w http.ResponseWriter, r *http.Request) {
 	empDto := dto.EmployeeDto{}
-	err := json.NewDecoder(r.Body).Decode(&empDto)
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&empDto)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		http.Error(w, "request body must contain a single JSON value", http.StatusBadRequest)
 		return
 	}
 	if err := validateEmpDto(empDto); err != nil {
@@ -76,11 +85,17 @@ func (empHandler EmployeeHandler) newEmp(w http.ResponseWriter, r *http.Request)
 }
 
 func validateEmpDto(empDto dto.EmployeeDto) error {
-	if empDto.FullName == "" {
+	if strings.TrimSpace(empDto.FullName) == "" {
 		return errors.New("full name is required")
 	}
-	if empDto.Position == "" {
+	if utf8.RuneCountInString(empDto.FullName) > 255 {
+		return errors.New("full name must not exceed 255 characters")
+	}
+	if strings.TrimSpace(empDto.Position) == "" {
 		return errors.New("position is required")
+	}
+	if utf8.RuneCountInString(empDto.Position) > 255 {
+		return errors.New("position must not exceed 255 characters")
 	}
 	return nil
 }

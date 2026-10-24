@@ -1,0 +1,38 @@
+services:
+  application:
+    build: .
+    container_name: stuff-registry
+    image: stuff-registry:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}?sslmode=disable
+    depends_on:
+      - postgres
+    ports:
+      - "8090:8090"
+  postgres:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+    volumes:
+      - "postgres_data:/var/lib/postgresql"
+    ports:
+      - "5432:5432"
+
+  migrate:
+    image: migrate/migrate:v4.20.1
+    profiles: ["tools"]
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database=postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}?sslmode=disable
+    command: ["up"]
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
